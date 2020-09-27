@@ -260,6 +260,237 @@ public class Config3 {}
 
 
 
+# BeanPostProcessor的使用
+
+## spring底层的使用
+
+- ApplicationContextAwareProcessor帮组件注册IOC容器
+
+  ~~~java
+  @Component
+  public class Preson implements ApplicationContextAware{
+      
+      private ApplicationContext context;
+      
+      public void setApplicationContext(ApplicationContext applicationContext){
+          
+          this.context = applicationContext;
+          
+      }
+  }
+  ~~~
+
+
+
+注意bean赋值，注入其他组件，数据校验，生命周期注解功能。都是用BeanPostProcessor的使用
+
+
+
+# 三、属性赋值
+
+
+
+## @Value属性赋值
+
+使用@Value赋值：
+
+- 基本数值
+- Spel：#{}
+- ${}：取出配置文件的值（再运行环境变量里面的值）
+
+
+
+## @PropertySource
+
+此注解主要用来获取外置配置文件中的属性，保存到运行环境变量中
+
+@PropertySource(value = {"classpath:/person.properties"})
+
+
+
+还可以用其他方式获取配置文件中的值
+
+~~~java
+Environment env = ApplicationContext.getEnvironment();
+
+//直接获取ket值的属性值，因为配置文件已经加载进环境中了
+String property = env.getProperty("person.nickname");
+
+sout(property)
+
+~~~
+
+
+
+## 案例
+
+~~~java
+@Component
+@PropertySource(value={"classpath:/person.properties"})
+public class Person{
+    
+    @Value("${person.name}")
+    String name;
+    
+    @Value("#{20+22}")
+    Integer age;
+    
+    @Value("2020")
+    Integer id;
+}
+~~~
+
+
+
+
+
+
+
+
+
+# 四、自动装配
+
+spring利用依赖注入（DI），完成对IOC容器中各个组件的依赖关系赋值
+
+
+
+## @Autowired
+
+1. 默认优先按照类型去容器找对应的组件：applicationContext.getBean(Book.class)
+2. 如果找到多个相同类型的组件：讲属性的名称【名字】作为组件id去容器中查找
+
+
+
+## @Qualifier()
+
+用来指定哪个组件被装配
+
+@Qualfier("book")
+
+
+
+## @Auwowired(required=false)
+
+使用required=false：指明当前组件是非必须的装配的。
+
+
+
+## @Primary
+
+让spring进行自动装配的时候，默认使用首选的bean;也可以继续使用@Qualifierz
+
+
+
+## @Resource
+
+Spring还支持JSR250（@Resource）和@JSR330（@Inject）
+
+默认是按照组件【名称】进行装配，没有按照@Primary功能和reqiured=false
+
+
+
+### @Inject
+
+需要导入javax.inject的包，和Autowired的功能一样。没有reqiured=false
+
+
+
+## AutowiredAnnotationBeanPostProcessor
+
+用来解析自动装配功能
+
+
+
+~~~java
+@Component
+public class Car{
+    
+}
+~~~
+
+
+
+
+
+
+
+## 方法、构造器位置的自动注入
+
+@Autowired：构造器，参数，方法，属性
+
+~~~java
+
+//标注在方法，spring容器创建当前对象，就会调用方法，完成赋值
+//方法使用的参数，自定义类型的值从ioc容器获取
+@Autowired
+public void setCar(Car car){
+    this.car = car;
+}
+~~~
+
+
+
+默认加在ioc容器中的组件，容器启动会调用无参构造器，创建对象，然后进行初始化赋值操作
+
+~~~java
+//构造器要用的组件，都是从容器中获取
+@Autowired
+public Boss(Car car){
+    this.car = car;
+    sout("Boss.....有参构造器")
+}
+~~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
