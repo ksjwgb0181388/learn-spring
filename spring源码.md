@@ -290,7 +290,7 @@ public class Config3 {}
 
 
 
-## @Value属性赋值
+## 3.1 @Value属性赋值
 
 使用@Value赋值：
 
@@ -300,7 +300,7 @@ public class Config3 {}
 
 
 
-## @PropertySource
+## 3.2 @PropertySource
 
 此注解主要用来获取外置配置文件中的属性，保存到运行环境变量中
 
@@ -354,14 +354,14 @@ spring利用依赖注入（DI），完成对IOC容器中各个组件的依赖关
 
 
 
-## @Autowired
+## 4.1 @Autowired
 
 1. 默认优先按照类型去容器找对应的组件：applicationContext.getBean(Book.class)
 2. 如果找到多个相同类型的组件：讲属性的名称【名字】作为组件id去容器中查找
 
 
 
-## @Qualifier()
+## 4.2 @Qualifier()
 
 用来指定哪个组件被装配
 
@@ -369,19 +369,19 @@ spring利用依赖注入（DI），完成对IOC容器中各个组件的依赖关
 
 
 
-## @Auwowired(required=false)
+## 4.3 @Auwowired(required=false)
 
 使用required=false：指明当前组件是非必须的装配的。
 
 
 
-## @Primary
+## 4.4 @Primary
 
 让spring进行自动装配的时候，默认使用首选的bean;也可以继续使用@Qualifierz
 
 
 
-## @Resource
+## 4.5 @Resource
 
 Spring还支持JSR250（@Resource）和@JSR330（@Inject）
 
@@ -395,7 +395,7 @@ Spring还支持JSR250（@Resource）和@JSR330（@Inject）
 
 
 
-## AutowiredAnnotationBeanPostProcessor
+## 4.6 AutowiredAnnotationBeanPostProcessor
 
 用来解析自动装配功能
 
@@ -414,7 +414,7 @@ public class Car{
 
 
 
-## 方法、构造器位置的自动注入
+## 4.7 方法、构造器位置的自动注入
 
 @Autowired：构造器，参数，方法，属性
 
@@ -443,11 +443,316 @@ public Boss(Car car){
 
 
 
+## 4.8 Aware注入spring底层组件&原理
+
+自定义组件如果想要使用spring容器底层的一些组件（ApplicationContext、BeanFactory）
+
+自定义组件实现xxxAware：在创建对象时，会调用接口规定的方法。注入相关的组件Aware
+
+~~~java
+public class Preson implements ApplicationContextAware,BeanNameAware,
+							   EmbeddedValueResolverAware{
+    
+    private ApplicationContext context;
+    
+    public void setApplicationContext(ApplicationContext application){
+        this.context = application;
+    }
+    
+    
+    public void setBeanName(String name){
+        sout("当前bean的名字":name)
+    }
+        
+                                   
+    public void setEmbeddedValueResolver(StringValueResolver resolver){
+        String value = resolver.resolverStringValue("你好${os.name} 我是#{20*18}");
+    }                               
+}
+~~~
+
+
+
+### xxxAware的工作原理
+
+功能使用的事xxxProcessor
+
+ApplicationContextAware ===> ApplicationContextAwareProcessor
+
+
+
+## 4.9 @Profile环境搭建
+
+@Profile：spring为我们提供的根据当前环境，动态的切换和激活一些列bean的功能
+
+**注解可以标注在方法上和类上**
+
+**没有标注环境标识的bean，任何环境都可以加载**
+
+
+
+开发中特别好：
+
+- 开发环境、测试环境、生产环境
+- 数据源的配置的数据源切换
+- 根据环境切换组件，根据当前环境动态的切换组件
+
+
+
+~~~java
+/**
+ * 配置数据源的方式很多种
+ *
+ * 可以直接写死的方式进行注入
+ *
+ * 可以使用EmbeddedValueResolverAware的值解析器解析数据源信息
+ *
+ * 可以直接使用${} 直接获取数据源的配置信息
+ */
+@Configuration
+@PropertySource("classpath:/db.properties")
+public class Config implements EmbeddedValueResolverAware {
+
+    @Value("${db.username}")
+    private String username;
+
+    private StringValueResolver valueResolver;
+
+    /**
+     * @Prop：指定组件在哪个环境中才能被注册到容器中，不指定任何环境都可以注册这个组件
+     *
+     * @Profile("default")
+     * 1. 加了环境标识的bean，只有这个环境被激活的时候才能注册到容器中。默认是default环境
+     *
+     */
+    @Profile("dev")
+    @Bean("dev")
+    public DataSource dataSourceTest(@Value("${db.pwd}") String password) throws Exception {
+
+        ComboPooledDataSource comboPooledDataSource = new ComboPooledDataSource();
+
+        comboPooledDataSource.setUser(username);
+
+        comboPooledDataSource.setPassword(password);
+
+        String s = valueResolver.resolveStringValue("${db.driverClass}");
+
+        comboPooledDataSource.setDriverClass(s);
+
+        comboPooledDataSource.setJdbcUrl("jdbc:mysql://localhost:3306/test");
+
+        return  comboPooledDataSource;
+    }
+
+    @Profile("prop")
+    @Bean
+    public DataSource dataSourcePro(@Value("${db.pwd}") String password) throws Exception {
+
+        ComboPooledDataSource comboPooledDataSource = new ComboPooledDataSource();
+
+        comboPooledDataSource.setUser(username);
+
+        comboPooledDataSource.setPassword(password);
+
+        String s = valueResolver.resolveStringValue("${db.driverClass}");
+
+        comboPooledDataSource.setDriverClass(s);
+
+        comboPooledDataSource.setJdbcUrl("jdbc:mysql://localhost:3306/prop");
+
+        return  comboPooledDataSource;
+    }
+
+
+    /**
+     * 可以通过 值解析器进行解析
+     * @param stringValueResolver
+     */
+    public void setEmbeddedValueResolver(StringValueResolver stringValueResolver) {
+        this.valueResolver = stringValueResolver;
+    }
+}
+~~~
+
+
+
+使用代码的方式进行激活
+
+~~~java
+//创建IOC容器
+AnnotationConfigApplicationContext configApplicationContext = new AnnotationConfigApplicationContext();
+
+//设置需要激活的环境
+configApplicationContext.getEnvironment().setActiveProfiles("test","prop");
+
+//注册主配置类
+configApplicationContext.register(Config.class);
+
+//启动刷新容器
+configApplicationContext.refresh();
+~~~
 
 
 
 
 
+# 五、APO核心原理
+
+## 5.1 如何使用springAOP
+
+
+
+### 切面配置类
+
+~~~java
+/**
+ * AOP : 指在程序运行期间动态的将某段代码切入到指定方法位置进行的编程方式
+ *
+ *     在业务逻辑将日志进行打印（方法运行之前，方法运行结束，方法出现异常）
+ *
+ * 1。导入aop模块：Spring AOP（spring-aspects）
+ * 2. 定义一个日志切面类(LogAspects)：切面类里面的方法。需要动态感知
+ *       通知方法；
+ *            前置通知(@Before)：logStart：在目标方法运行之前通知
+ *            后置通知(@After)：logEnd：在目标方法运行结束后通知
+ *            返回通知(@AfterReturning)：logReturn：在目标方法正常返回之后运行
+ *            异常通知(@AfterThrowing)：logException：在目标方法出现异常后来运行
+ *            环绕通知(@Around)：动态代理，手动推进目标方法运行（joinPoint.procced()）
+ *
+ * 3. 给切面类的目标方法标注何时何地进行运行
+ * 4. 将切面类和业务类都加入到容器中
+ * 5. 必须告诉spring哪个类是切面类
+ * 6. 给当前配置类加一个 EnableAspectAutoProxy 告诉spring 开启注解的AOP模式
+ *
+ * 7. 在spring中会有很多@Enablexxx功能，就是开启某些配置
+ *
+ *
+ */
+@EnableAspectJAutoProxy
+@Configuration
+public class AopConfig {
+
+    @Bean
+    public AopService aopService(){
+        return new AopService();
+    }
+
+    //切面类加入到容器中
+    @Bean
+    public LogAspects logAspects(){
+        return new LogAspects();
+    }
+
+}
+~~~
+
+
+
+### 切面类
+
+~~~java
+//给切面类加入一个注解：告诉spring当前类是一个切面类
+@Aspect
+public class LogAspects {
+
+    /**
+     * 抽取公共切入点表达式
+     * 1.本类引用
+     * 2.其他的切面引入 全类名限定
+     */
+    @Pointcut("execution(public * com.baidu.service.*.*(..))")
+    public void pointCut(){}
+
+    //在目标方法执行之前切入
+    @Before("pointCut()")
+    public void logStart(JoinPoint joinPoint){
+        Object[] args = joinPoint.getArgs();
+        System.out.println("方法名："+joinPoint.getSignature().getName()+"触发了。。。参数列表是：{"+ Arrays.asList(args)+"}");
+    }
+
+
+    @After("pointCut()")
+    public void logEnd(){
+        System.out.println("触发结束了。。。");
+    }
+
+    @AfterReturning(value = "pointCut()",returning = "result")
+    public void LogReturn(Object result){
+        System.out.println("正常返回，运行结果是:{"+result+"}");
+    }
+
+    /**
+     * JoinPoint 一定要出现在参数表的第一位
+     */
+    @AfterThrowing(value = "pointCut()",throwing = "exception")
+    public void logException(JoinPoint joinPoint,Exception exception){
+        System.out.println("异常出现了.....异常信息：{"+exception+"}");
+    }
+
+}
+~~~
+
+
+
+### 业务类
+
+~~~java
+public class AopService {
+    public int div(int i,int j){
+        return i/j;
+    }
+}
+
+public static void main(String[] args) {
+
+    AnnotationConfigApplicationContext annotationConfigApplicationContext = new AnnotationConfigApplicationContext(AopConfig.class);
+
+    AopService aopService = annotationConfigApplicationContext.getBean("aopService", AopService.class);
+
+    int div = aopService.div(1, 1);
+
+    System.out.println(div);
+
+    annotationConfigApplicationContext.close();
+}
+
+~~~
+
+
+
+## 5.2 @EnableAspectJAutoProxy 的原理
+
+给容器中添加一个组件
+
+```java
+@Import({AspectJAutoProxyRegistrar.class})
+```
+
+
+
+利用AspectJAutoProxyRegistrar自定义给容器中注册bean
+
+~~~java
+class AspectJAutoProxyRegistrar implements ImportBeanDefinitionRegistrar {
+    AspectJAutoProxyRegistrar() {
+    }
+
+    public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
+        AopConfigUtils.registerAspectJAnnotationAutoProxyCreatorIfNecessary(registry);
+        AnnotationAttributes enableAspectJAutoProxy = AnnotationConfigUtils.attributesFor(importingClassMetadata, EnableAspectJAutoProxy.class);
+        if (enableAspectJAutoProxy != null) {
+            if (enableAspectJAutoProxy.getBoolean("proxyTargetClass")) {
+                AopConfigUtils.forceAutoProxyCreatorToUseClassProxying(registry);
+            }
+
+            if (enableAspectJAutoProxy.getBoolean("exposeProxy")) {
+                AopConfigUtils.forceAutoProxyCreatorToExposeProxy(registry);
+            }
+        }
+
+    }
+}
+~~~
 
 
 
