@@ -262,27 +262,11 @@ public class Config3 {}
 
 # BeanPostProcessor的使用
 
-## spring底层的使用
-
-- ApplicationContextAwareProcessor帮组件注册IOC容器
-
-  ~~~java
-  @Component
-  public class Preson implements ApplicationContextAware{
-      
-      private ApplicationContext context;
-      
-      public void setApplicationContext(ApplicationContext applicationContext){
-          
-          this.context = applicationContext;
-          
-      }
-  }
-  ~~~
 
 
 
-注意bean赋值，注入其他组件，数据校验，生命周期注解功能。都是用BeanPostProcessor的使用
+
+
 
 
 
@@ -720,7 +704,11 @@ public static void main(String[] args) {
 
 
 
-## 5.2 @EnableAspectJAutoProxy 的原理
+## 5.2@EnableAspectJAutoProxy 的原理
+
+原理：关注给容器注册了什么组件
+
+
 
 给容器中添加一个组件
 
@@ -756,11 +744,74 @@ class AspectJAutoProxyRegistrar implements ImportBeanDefinitionRegistrar {
 
 
 
+利用AspectJAutoProxyRegistrar自定义给容器中注册bean
+
+~~~java
+private static BeanDefinition registerOrEscalateApcAsRequired(
+			Class<?> cls, BeanDefinitionRegistry registry, @Nullable Object source) {}
+~~~
+
+internalAutoProxyCreator==AnnotationAwareAspectJAutoProxyCreator
+
+启动给容器注册一个AnnotationAwareAspectJAutoProxyCreator
+
+
+
+### AnnotationAwareAspectJAutoProxyCreator是什么？
+
+继承关系：
+
+- AspectJAwareAdvisorAutoProxyCreator
+  - AbstractAdvisorAutoProxyCreator
+    - AbstractAutoProxyCreator 
+      - **implements** SmartInstantiationAwareBeanPostProcessor, BeanFactoryAware
+      - 关注后置处理器的工作（在bean初始化完成前后做的事情）、自动装配BeanFactory
+
+
+
+- AbstractAutoProxyCreator 
+
+AbstractAutoProxyCreator.setBeanFactory（）
+
+AbstractAutoProxyCreator.postProcessBeforeInstantiation（）
+
+AbstractAutoProxyCreator.postPorcessAfterInitialization（）
 
 
 
 
 
+- AbstractAdvisorAutoProxyCreator
+
+ AbstractAdvisorAutoProxyCreator.setBeanFactory（）=》initBeanFactory（）
+
+ 
+
+- AnnotationAwareAspectJAutoProxyCreator
+
+  AnnotationAwareAspectJAutoProxyCreator.initBeanFactory（）
+
+  
+
+  
+
+  #### 方法调用流程
+
+  1. 传入配置类，创建IOC容器
+
+     （AnnotationConfigApplicationContext anno = new AnnotationConfigApplication()）
+
+  2. 注册配置类，调用refresh() 刷新容器
+
+  3. registerBeanPostProcessor（beanFactory）：注册bean的后置处理器来方便拦截bean的创建
+
+     1. 先获取ioc容器已经定义的需要创建的对象所有beanPostPorcessor
+     2. 给容器中加别的BeanPostPorcessor
+     3. 优先注册实现了PriorityOrdered接口的BeanPostPorcessor
+     4. 再给容器注册实现了Ordered接口的BeanPostPorcessor
+     5. 最后注册没有实现优先级接口的BeanPostProcessor
+
+  
 
 
 
