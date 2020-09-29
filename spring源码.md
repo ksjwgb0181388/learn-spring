@@ -330,6 +330,24 @@ ApplicationContextAware：上级接口就是BeanPostProcessor
 
 注意bean赋值，注入其他组件，数据校验，生命周期注解功能。都是用BeanPostProcessor的使用
 
+- ApplicationContextAwareProcessor帮组件注册IOC容器
+
+  ~~~java
+  @Component
+  public class Preson implements ApplicationContextAware{
+      
+      private ApplicationContext context;
+      
+      public void setApplicationContext(ApplicationContext applicationContext){
+          
+          this.context = applicationContext;
+          
+      }
+  }
+  ~~~
+
+
+
 
 
 # 三、属性赋值
