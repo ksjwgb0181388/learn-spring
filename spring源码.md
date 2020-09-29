@@ -868,12 +868,137 @@ AbstractAutoProxyCreator.postPorcessAfterInitialization（）
   3. registerBeanPostProcessor（beanFactory）：注册bean的后置处理器来方便拦截bean的创建
 
      1. 先获取ioc容器已经定义的需要创建的对象所有beanPostPorcessor
+
      2. 给容器中加别的BeanPostPorcessor
+
      3. 优先注册实现了PriorityOrdered接口的BeanPostPorcessor
+
      4. 再给容器注册实现了Ordered接口的BeanPostPorcessor
+
      5. 最后注册没有实现优先级接口的BeanPostProcessor
 
+     6. 注册BeanPostProcessor，实际上就是创建BeanPostProcessor对象，保存到容器中
+
+        创建internalAutoPorxyCreator的BeanPostProcessor【AnnotationAwareAspectJAutoProxyCreator】
+
+        1. 创建bean的实例
+        2. populateBean：给bean的各种属性赋值
+        3. initializeBean：初始化bean
+           1. invokeAwareMethods（）：处理Aware接口的方法回调
+           2. applyBeanPostProcessorsBeforeInitialization()：应用后置处理器的BeforeInitialization
+           3. invokeInitMethods（）：执行自定义的初始化方法
+           4. applyBeanPostProcessorsAfterInitialization（）：执行后置处理器postProcessAfterInitialization
+        4. BeanPostProcessor（AnnoationAwareAspectJAutoProxyCreator）：创建成功；---》aspectJAdvisorsBuilder
+
+     7. 把BeanPostPorcessor注册到BeanFactory中
+
+        beanFactory.addBeanPostPorcessor(postPorcessor)
+
   
+
+  ————————————————以上是创建和注册AnnotationAwareAspectJAutoProxyCreator————————————
+
+  
+
+  AnnotationAwareAspectJAutoProxyCreator =》 InstantiationAwareBeanPostProcessor
+
+  他是这个接口的后置处理器
+
+  4. finishBeanFactoryInitialization(beanFactory);完成beanFactory初始化工作；创建剩下的单实例bean
+
+     1. 遍历获取容器中所有的bean，依次创建对象getBean(beanName)
+
+        getBean -> doGetBean-> getSingleton->
+
+     2. 创建bean
+
+        1. 先从缓存中获取当前bean，如果能获取到，说明bean是之前被创建过的；直接使用，否则再创建
+
+           只要被创建的bean都被缓存起来
+
+        2. creatBean():创建bean；AnnotationAwareAspectJAutoProxyCreator会在任何bean创建之前先尝试返回bean的实例
+
+           【AnnotationAwareAspectJAutoProxyCreator在所有bean创建之前会有一个拦截，因为他是InstantiationAwareBeanPostProcessor，会调用postProcessBeforeInstantiation方法】
+
+           【BeanPostProcessor是再Bean对象完成初始化前后调用】
+
+           【InstantiationAwareBeanPostProcessor是在创建Bean实例之前先尝试用后置处理器返回对象】
+
+           1. resolveBeforeInstantiation（beanName，mbdToUse）：
+
+              希望后置处理器在此能返回一个代理对象；如果能返回就使用，如果不能就继续
+
+              - 后置处理器先尝试返回对象
+
+                bean = applyBeanPostProcessorsBeforeInstantiation（）
+
+                ​	拿到所有后置处理器，如果是InstantiationAwareBeanPostProcessor；
+
+                ​	就执行后置处理器的postPorcessorBeforeInstantiation
+
+                if(bean != null){
+
+                ​	bean = applyBeanPostProcessorsAfterInitialization（bean，bean）
+
+                }
+
+           
+
+           1. doCreateBean()：真正的创建一个bean实例；和3.6流程一样
+
+  
+
+AnnotationAwareAspectJAutoProxyCreator【InstantiationAwareBeanPostProcessor】的作用：
+
+1. 在每一个bean创建之前，调用postPorcessBeforeInstantiation（）
+
+   关心自定义业务和切面类的创建
+
+   1. 判断当前bean是否在advisedBean中（保存了所有需要增强的bean）
+
+   2. 判断当前bean是否是基础类型Advice、PointCut接口的实现，或者是否是切面（@Aspect）
+
+   3. 是否需要跳过
+
+      1. 获取候选的增强器（切面里面通知方法【List<Advisor> candiateAdvisors】）
+
+         每一个封装的通知方法增强器是InstantiationModelAwarePointcutAdvisor
+
+         判断每一个增强器是否是AspectJPointcutAdvisor类型的；返回true
+
+      2. 如果不是就永远返回false
+
+2. 创建对象
+
+   1. postProcessAfterInitialization
+
+      1. return wrapIfNecessary（bean，beanName，cacheKey）：包装，如果需要的情况下
+
+         1. 获取当前bean的所有增强器（通知方法）Object [] specificInterceptors
+
+            找到候选的所有增强器（找哪些通知方法是需要切入当前bean方法的）
+
+            获取到能在bean使用的增强器
+
+            给增强器排序
+
+         2. 保存当前bean在advisedBeans中
+
+         3. 如果当前bean需要增强，创建当前bean的代理对象
+
+            1. 获取所有增强器（通知方法）
+
+            2. 保存到proxyFactory
+
+            3. 创建代理对象：Spring自动决定
+
+               JdkDynamicAopProxy(config)；jdk动态代理
+
+               ObjenesisCglibAopProxy(config)；cglib的动态代理
+
+         4. 给容器中返回当前组件使用cglib增强了的对象
+
+         5. 以后容器中获取的就是这个组件的代理对象，执行目标方法的时候，代理对象就会执行通知方法的流程
 
 
 
