@@ -264,9 +264,71 @@ public class Config3 {}
 
 
 
+Bean的后置处理器，在bean初始化前后进行一些处理工作。
+
+postProcessBeforeInitialization:初始化之前进行处理工作
+
+postProcessAfterInitialization：初始化之后进行处理工作
 
 
 
+执行流程：
+
+遍历得到容器中所有的BeanPostPorcessor；挨个执行，一旦方法返回null，跳出for循环
+
+populateBean(beanName，mbd，instanceWrapper)：给bean进行属性赋值
+
+initializeBean
+
+applyBeanPostPorcessorsBeforeInitialization（wrappedBean）
+
+invokeInitMethods（bean，wrappedBean，mdb）：执行初始化
+
+applyBeanPostProcessorAfterInitialzation（wrappedBean,beanName）
+
+
+
+~~~java
+/**
+ * 后置处理器：初始化前后进行处理
+ */
+@Component
+public class MyBeanPostProcessor implements BeanPostProcessor {
+
+    /**
+     *
+     * @param bean : Bean
+     * @param beanName：Bean的名字
+     * @return
+     * @throws BeansException
+     */
+    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+        System.out.println("postProcessBeforeInitialization" +beanName + "=>" + bean);
+        return bean;
+    }
+
+    /**
+     *
+     * @param bean:Bean
+     * @param beanName:Bean的名字
+     * @return
+     * @throws BeansException
+     */
+    public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+        System.out.println("postProcessAfterInitialization"  +beanName + "=>" + bean);
+        return bean;
+    }
+}
+~~~
+
+
+
+## spring底层的使用
+
+
+ApplicationContextAware：上级接口就是BeanPostProcessor 
+
+注意bean赋值，注入其他组件，数据校验，生命周期注解功能。都是用BeanPostProcessor的使用
 
 
 
