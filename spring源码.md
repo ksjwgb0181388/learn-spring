@@ -40,6 +40,26 @@ public class Config {
 
 
 
+
+
+### 2.2.1 FilterType的类型
+
+FilterType为一个枚举类,总共有5个值,也就是说type总共有5个可选值
+
+```java
+public enum FilterType {
+	ANNOTATION,//按照注解方式
+	ASSIGNABLE_TYPE,//按照指定类型的方式
+	ASPECTJ,//使用ASPECTJ表达式的方式-------没用过,不演示
+	REGEX,//利用正则表达式进行指定-----------没用过,不演示
+	CUSTOM//自己实现TypeFilter接口进行自定义规则(如下面的代码)
+}
+```
+
+
+
+
+
 ## 2.3 自定义TypeFilter指定过滤规则
 
 ~~~java

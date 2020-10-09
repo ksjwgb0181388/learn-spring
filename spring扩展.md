@@ -648,7 +648,318 @@ EventListenerMethodPorcessor处理器来解析@EventListener
 
 
 
-# 三、总结
+# 三、Spring元数据Metadata的使用
+
+注解编程之**AnnotationMetadata**，**ClassMetadata**、**MetadataReaderFactory**
+
+### 前言
+
+`Spring`在2.0的时候就支持了基于`XML Schema`的扩展机制，让我们可以自定义的对xml配置文件进行扩展（四大步骤，有兴趣的可以自己学习），比如鼎鼎大名的`Dubbo`它就扩展了xml，用它来引入服务或者导出服务。
+随着`Spring3.0+`的发展，xml慢慢的淡出了我们的视野，特别是`Spring Boot`的流行让xml彻底消失，所有的xml配置都使用注解的方式进行了代替。
+
+
+
+### 元数据
+
+**元数据：数据的数据**。比如**Class**就是一种元数据。`Metadata`在`org.springframework.core.type`包名下，还有用于读取的子包`classreading`也是重要知识点。此体系大致的类结构列出如下图：
+
+![](C:\Users\Admin\Desktop\spring源码\图片\20190323182923947.png)
+
+
+
+![20190323183004773](C:\Users\Admin\Desktop\spring源码\图片\20190323183004773.png)
+
+
+
+![](C:\Users\Admin\Desktop\spring源码\图片\20190323183029887.png)
+
+
+
+可以看到顶层接口有两个：`ClassMetadata`和`AnnotatedTypeMetadata`
+
+**注解上的注解**，`Spring`将其定义为元注解(`meta-annotation`),如 `@Component`标注在 `@Service`上，`@Component`就被称作为元注解。后面我们就将注解的注解称为元注解。
+
+
+
+### ClassMetadata：对`Class`的抽象和适配
+
+此接口的所有方法，基本上都跟Class有关。
+
+```java
+// @since 2.5
+public interface ClassMetadata {
+
+	// 返回类名（注意返回的是最原始的那个className）
+	String getClassName();
+	boolean isInterface();
+	// 是否是注解
+	boolean isAnnotation();
+	boolean isAbstract();
+	// 是否允许创建  不是接口且不是抽象类  这里就返回true了
+	boolean isConcrete();
+	boolean isFinal();
+	// 是否是独立的(能够创建对象的)  比如是Class、或者内部类、静态内部类
+	boolean isIndependent();
+	// 是否有内部类之类的东东
+	boolean hasEnclosingClass();
+	@Nullable
+	String getEnclosingClassName();
+	boolean hasSuperClass();
+	@Nullable
+	String getSuperClassName();
+	// 会把实现的所有接口名称都返回  具体依赖于Class#getSuperclass
+	String[] getInterfaceNames();
+
+	// 基于：Class#getDeclaredClasses  返回类中定义的公共、私有、保护的内部类
+	String[] getMemberClassNames();
+}
+
+```
+
+
+
+![](C:\Users\Admin\Desktop\spring源码\图片\2019100718182382.png)
+
+
+
+
+
+### StandardClassMetadata
+
+基于Java标准的（Standard）反射实现元数据的获取。
+
+```java
+// @since 2.5
+public class StandardClassMetadata implements ClassMetadata {
+	// 用于内省的Class类
+	private final Class<?> introspectedClass;
+	
+	// 唯一构造函数：传进来的Class，作为内部的内省对象
+	public StandardClassMetadata(Class<?> introspectedClass) {
+		Assert.notNull(introspectedClass, "Class must not be null");
+		this.introspectedClass = introspectedClass;
+	}
+	... // 后面所有的方法实现，都是基于introspectedClass,类似代理模式。举例如下：
+
+	public final Class<?> getIntrospectedClass() {
+		return this.introspectedClass;
+	}
+	@Override
+	public boolean isInterface() {
+		return this.introspectedClass.isInterface();
+	}
+	@Override
+	public String[] getMemberClassNames() {
+		LinkedHashSet<String> memberClassNames = new LinkedHashSet<>(4);
+		for (Class<?> nestedClass : this.introspectedClass.getDeclaredClasses()) {
+			memberClassNames.add(nestedClass.getName());
+		}
+		return StringUtils.toStringArray(memberClassNames);
+	}
+}
+
+```
+
+它有个非常重要的子类：`StandardAnnotationMetadata`它和注解密切相关，在文章下半部分重点分析。
+
+### MethodsMetadata：新增访问方法元数据的接口
+
+它是子接口，主要增加了从Class里获取到`MethodMetadata`们的方法：
+
+```java
+// @since 2.1 可以看到它出现得更早一些
+public interface MethodsMetadata extends ClassMetadata {
+	// 返回该class所有的方法
+	Set<MethodMetadata> getMethods();
+	// 方法指定方法名的方法们（因为有重载嘛~）
+	Set<MethodMetadata> getMethods(String name);
+}
+```
+
+名字上请不要和`MethodMetadata`搞混了，`MethodMetadata`是`AnnotatedTypeMetadata`的子接口，代表具体某一个Type（方法上的注解）；而此类是个`ClassMetadata`，它能获取到本类里所有的方法Method（MethodMetadata）~
+
+
+
+### AnnotatedTypeMetadata：对注解元素的封装适配
+
+什么叫注解元素(`AnnotatedElement`)？比如我们常见的`Class、Method、Constructor、Parameter`等等都属于它的子类都属于注解元素。简单理解：只要能在上面标注注解都属于这种元素。`Spring4.0`新增的这个接口提供了对注解统一的、便捷的访问，使用起来更加的方便高效了。
+
+```java
+// @since 4.0
+public interface AnnotatedTypeMetadata {
+
+	// 此元素是否标注有此注解~~~~
+	// annotationName：注解全类名
+	boolean isAnnotated(String annotationName);
+	
+	// 这个就厉害了：取得指定类型注解的所有的属性 - 值（k-v）
+	// annotationName：注解全类名
+	// classValuesAsString：若是true表示 Class用它的字符串的全类名来表示。这样可以避免Class被提前加载
+	@Nullable
+	Map<String, Object> getAnnotationAttributes(String annotationName);
+	@Nullable
+	Map<String, Object> getAnnotationAttributes(String annotationName, boolean classValuesAsString);
+
+	// 参见这个方法的含义：AnnotatedElementUtils.getAllAnnotationAttributes
+	@Nullable
+	MultiValueMap<String, Object> getAllAnnotationAttributes(String annotationName);
+	@Nullable
+	MultiValueMap<String, Object> getAllAnnotationAttributes(String annotationName, boolean classValuesAsString);
+}
+
+```
+
+它的继承树如下：
+
+![](C:\Users\Admin\Desktop\spring源码\图片\20191007195953382.png)
+
+
+
+两个子接口相应的都提供了标准实现以及基于`ASM`的`Visitor`模式实现。
+
+> ASM 是一个通用的 Java 字节码操作和分析框架。它可以用于修改现有类或直接以二进制形式动态生成类。 ASM 虽然提供与其他 Java 字节码框架如 Javassist，CGLIB类似的功能，但是其设计与实现小而快，且性能足够高。
+
+> Spring 直接将 ASM 框架核心源码内嵌于 Spring-core中，目前`Spring 5.1使用ASM 7 版本。
+
+
+
+### MethodMetadata：方法描述
+
+子接口，用来描述`java.lang.reflect.Method`。
+
+```java
+// @since 3.0
+public interface MethodMetadata extends AnnotatedTypeMetadata {
+	String getMethodName();
+	String getDeclaringClassName();
+	String getReturnTypeName();
+	boolean isAbstract();
+	boolean isStatic();
+	boolean isFinal();
+	boolean isOverridable();
+}
+
+```
+
+##### StandardMethodMetadata
+
+基于反射的标准实现，略
+
+
+
+##### MethodMetadataReadingVisitor
+
+基于`ASM`的实现的，继承自`ASM``的org.springframework.asm.MethodVisitor`采用`Visitor`的方式读取到元数据。
+
+```java
+// @since 3.0
+public class MethodMetadataReadingVisitor extends MethodVisitor implements MethodMetadata {
+	...
+}
+```
+
+
+
+### `AnnotationMetadata`（重要）
+
+这是理解`Spring`注解编程的必备知识，它是`ClassMetadata`和`AnnotatedTypeMetadata`的子接口，具有两者共同能力，并且新增了访问注解的相关方法。可以简单理解为它是对注解的抽象。
+
+> 经常这么使用得到注解里面所有的属性值：
+> `AnnotationAttributes attributes = AnnotationConfigUtils.attributesFor(annoMetadata, annType);`
+
+
+
+~~~java
+// @since 2.5
+public interface AnnotationMetadata extends ClassMetadata, AnnotatedTypeMetadata {
+
+	//拿到当前类上所有的注解的全类名（注意是全类名）
+	Set<String> getAnnotationTypes();
+	// 拿到指定的注解类型
+	//annotationName:注解类型的全类名
+	Set<String> getMetaAnnotationTypes(String annotationName);
+	
+	// 是否包含指定注解 （annotationName：全类名）
+	boolean hasAnnotation(String annotationName);
+	//这个厉害了，用于判断注解类型自己是否被某个元注解类型所标注
+	//依赖于AnnotatedElementUtils#hasMetaAnnotationTypes
+	boolean hasMetaAnnotation(String metaAnnotationName);
+	
+	// 类里面只有有一个方法标注有指定注解，就返回true
+	//getDeclaredMethods获得所有方法， AnnotatedElementUtils.isAnnotated是否标注有指定注解
+	boolean hasAnnotatedMethods(String annotationName);
+	// 返回所有的标注有指定注解的方法元信息。注意返回的是MethodMetadata 原理基本同上
+	Set<MethodMetadata> getAnnotatedMethods(String annotationName);
+}
+
+~~~
+
+同样的它提供了两种实现方式。
+
+
+
+#### StandardAnnotationMetadata
+
+继承了`StandardClassMetadata`，很明显关于`ClassMetadata`的实现部分就交给此父类了，自己只关注于`AnnotationMetadata`接口的实现。
+
+```java
+// @since 2.5
+public class StandardAnnotationMetadata extends StandardClassMetadata implements AnnotationMetadata {
+	
+	// 很显然它是基于标准反射类型：java.lang.annotation.Annotation
+	// this.annotations = introspectedClass.getAnnotations()
+	private final Annotation[] annotations;
+	private final boolean nestedAnnotationsAsMap;
+	...
+
+	
+	// 获取本Class类上的注解的元注解们
+	@Override
+	public Set<String> getMetaAnnotationTypes(String annotationName) {
+		return (this.annotations.length > 0 ?
+				AnnotatedElementUtils.getMetaAnnotationTypes(getIntrospectedClass(), annotationName) : Collections.emptySet());
+	}
+
+	@Override
+	public boolean hasAnnotation(String annotationName) {
+		for (Annotation ann : this.annotations) {
+			if (ann.annotationType().getName().equals(annotationName)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	...
+}
+
+```
+
+
+
+#### AnnotationMetadataReadingVisitor
+
+继承自`ClassMetadataReadingVisitor`，同样的`ClassMetadata`部分实现交给了它。
+
+> 说明：`ClassMetadataReadingVisitor`是`org.springframework.core.type.classreading`包下的类，同包的还有我下面重点讲述的`MetadataReader`。此实现类最终委托给`AnnotationMetadataReadingVisitor`来做的，而它便是`ClassMetadataReadingVisitor`的子类（`MetadataReader`的底层实现就是它，使用的ASM的`ClassVisitor`模式读取元数据）。
+
+
+
+~~~java
+// @since 2.5
+public class AnnotationMetadataReadingVisitor extends ClassMetadataReadingVisitor implements AnnotationMetadata {
+	...
+}
+~~~
+
+
+
+
+
+
+
+
+
+# 总结
 
 1. spring容器在启动的时候，先会保存所有注册进来的Bean的定义信息；
 
