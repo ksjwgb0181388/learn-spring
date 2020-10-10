@@ -953,9 +953,325 @@ public class AnnotationMetadataReadingVisitor extends ClassMetadataReadingVisito
 
 
 
+### MetadataReader接口
+
+此接口是一个访问`ClassMetadata`等的简单门面，实现是委托给`org.springframework.asm.ClassReader、ClassVisitor`来处理的，它不用把`Class`加载进`JVM`就可以拿到元数据，因为它读取的是资源：`Resource`，这是它最大的优势所在。
+
+```java
+// @since 2.5
+public interface MetadataReader {
+	// 返回此Class文件的来源（资源）
+	Resource getResource();
+	// 返回此Class的元数据信息
+	ClassMetadata getClassMetadata();
+	// 返回此类的注解元信息（包括方法的）
+	AnnotationMetadata getAnnotationMetadata();
+}
+```
 
 
 
+它的继承树如下：
+
+![](C:\Users\Admin\Desktop\spring源码\图片\20191007202651312.png)
+
+
+
+
+
+#### SimpleMetadataReader
+
+它是基于`ASM`的`org.springframework.asm.ClassReader`的简单实现。请注意：此类是非public的，而是default包访问权限。
+
+```java
+final class SimpleMetadataReader implements MetadataReader {
+	private final Resource resource;
+	private final ClassMetadata classMetadata;
+	private final AnnotationMetadata annotationMetadata;
+
+	// 唯一构造函数：给上面三个私有属性赋值，下面就只需提供get方法即可
+	SimpleMetadataReader(Resource resource, @Nullable ClassLoader classLoader) throws IOException {
+		InputStream is = new BufferedInputStream(resource.getInputStream());
+		ClassReader classReader;
+		try {
+			classReader = new ClassReader(is);
+		} catch (IllegalArgumentException ex) {
+			throw new NestedIOException("ASM ClassReader failed to parse class file - " + "probably due to a new Java class file version that isn't supported yet: " + resource, ex);
+		} finally {
+			is.close();
+		}
+
+		//通过流构建出一个AnnotationMetadataReadingVisitor，咀咒读取从而获取到各种信息
+		// 它实现了ClassVisitor，所以可以作为入参传给ClassReader ASM去解析
+		AnnotationMetadataReadingVisitor visitor = new AnnotationMetadataReadingVisitor(classLoader);
+		classReader.accept(visitor, ClassReader.SKIP_DEBUG);
+
+		this.annotationMetadata = visitor;
+		// (since AnnotationMetadataReadingVisitor extends ClassMetadataReadingVisitor)
+		this.classMetadata = visitor;
+		this.resource = resource;
+	}
+	... // 省略三个get方法
+}
+```
+
+
+
+#### MethodsMetadataReader
+
+`MetadataReader`的实现都并未public暴露出来，所以我们若想得到它的实例，就**只能通过此工厂**。
+
+```java
+// @since 2.5
+public interface MetadataReaderFactory {
+	//className： the class name (to be resolved to a ".class" file)
+	MetadataReader getMetadataReader(String className) throws IOException;
+	MetadataReader getMetadataReader(Resource resource) throws IOException;
+}
+```
+
+继承树如下：
+
+![](C:\Users\Admin\Desktop\spring源码\图片\20191007205932449.png)
+
+
+
+#### SimpleMetadataReaderFactory
+
+利用`ResourceLoader`的简单实现，加载进资源后，`new SimpleMetadataReader(resource)`交给此实例分析即可。
+
+```java
+public class SimpleMetadataReaderFactory implements MetadataReaderFactory {
+	// ResourceLoader这个资源加载类应该不陌生了吧
+	// 默认使用的是DefaultResourceLoader，当然你可以通过构造器指定
+	private final ResourceLoader resourceLoader;
+
+	// 根据类名找到一个Resource
+	@Override
+	public MetadataReader getMetadataReader(String className) throws IOException {
+		try {
+			// 把..形式换成//.class形式。使用前缀是：classpath:  在类路径里找哦
+			String resourcePath = ResourceLoader.CLASSPATH_URL_PREFIX + ClassUtils.convertClassNameToResourcePath(className) + ClassUtils.CLASS_FILE_SUFFIX;
+			Resource resource = this.resourceLoader.getResource(resourcePath);
+			return getMetadataReader(resource); // 调用重载方法
+		} catch (FileNotFoundException ex) {
+			// Maybe an inner class name using the dot name syntax? Need to use the dollar syntax here...
+			// ClassUtils.forName has an equivalent check for resolution into Class references later on.
+			... // 此处是兼容内部类形式，代码略
+		}
+	}
+
+	// 默认使用的是SimpleMetadataReader哦~~~
+	@Override
+	public MetadataReader getMetadataReader(Resource resource) throws IOException {
+		return new SimpleMetadataReader(resource, this.resourceLoader.getClassLoader());
+	}
+}
+
+```
+
+此工厂生产的是`SimpleMetadataReader`。
+
+##### CachingMetadataReaderFactory
+
+它继承自`SimpleMetadataReaderFactory`，没有其它特殊的，就是提供了缓存能力`private Map<Resource, MetadataReader> metadataReaderCache`，提高访问效率。
+**因为有了它，所以`SimpleMetadataReaderFactory`就不需要被直接使用了，用它代替。`Spring`内自然也使用的便是效率更高的它喽~**
+
+
+
+##### MethodsMetadataReaderFactory
+
+它继承自`SimpleMetadataReaderFactory`，唯一区别是它生产的是一个`MethodsMetadataReader（DefaultMethodsMetadataReader）`，从而具有了读取`MethodsMetadata`的能力。
+此类可认为从没有被`Spring`内部使用过，暂且可忽略（spring-data工程有用）
+
+`Factory`工厂的实现都是非常简单的，毕竟只是为了生产一个实例而已。
+
+
+
+### Spring注解编程中AnnotationMetadata的使用
+
+`Spring`从3.0开始就大量的使用到了注解编程模式，所以可想而知它对元数据（特别是注解元数据）的使用是非常多的，此处我只给出非常简单的总结。
+
+对于`MetadataReaderFactory`的应用主要体现在几个地方：
+
+1. `ConfigurationClassPostProcessor`：该属性值最终会传给`ConfigurationClassParser`，用于`@EnableXXX / @Import`等注解的解析上~
+
+~~~java
+// 私有成员变量，默认使用的CachingMetadataReaderFactory
+private MetadataReaderFactory metadataReaderFactory = new CachingMetadataReaderFactory();
+~~~
+
+
+
+2. `ClassPathScanningCandidateComponentProvider`：它用于`@ComponentScan`的时候解析，拿到元数据判断是否是`@Component`的派生注解
+
+   ~~~java
+   public final MetadataReaderFactory getMetadataReaderFactory() {
+   	if (this.metadataReaderFactory == null) {
+   		this.metadataReaderFactory = new CachingMetadataReaderFactory();
+   	}
+   	return this.metadataReaderFactory;
+   }
+   
+   ~~~
+
+
+
+3. Mybatis`的`SqlSessionFactoryBean`：它在使用上非常简单，只是为了从Resouece里拿到ClassName而已。`classMetadata.getClassName()
+
+   ~~~java
+   private static final MetadataReaderFactory METADATA_READER_FACTORY = new CachingMetadataReaderFactory();
+   
+   private Set<Class<?>> scanClasses(String packagePatterns, Class<?> assignableType) {
+   		...
+             ClassMetadata classMetadata = METADATA_READER_FACTORY.getMetadataReader(resource).getClassMetadata();
+             Class<?> clazz = Resources.classForName(classMetadata.getClassName());
+   		...
+   }
+   ~~~
+
+
+
+4. `SourceClass`：它是对source对象一个轻量级的包装，持有AnnotationMetadata 元数据，如下一般实际为一个`StandardAnnotationMetadata`，比如`@EnableTransactionManagement`用的就是它
+
+   ~~~java
+   	private class SourceClass implements Ordered {
+   		private final Object source;  // Class or MetadataReader
+   		private final AnnotationMetadata metadata;
+   		public SourceClass(Object source) {
+   			this.source = source;
+   			if (source instanceof Class) {
+   				this.metadata = new StandardAnnotationMetadata((Class<?>) source, true);
+   			} else {
+   				this.metadata = ((MetadataReader) source).getAnnotationMetadata();
+   			}
+   		}
+   	}
+   
+   ~~~
+
+
+
+说明：`Spring`的`@EnableXXX`模块注解很多都使用到了`ImportSelector`这个接口，此接口的回调方法参数第一个便是`AnnotationMetadata`代表着`@Import`所在类的注解的一些元数据们。通常我们会这样使用它：
+
+~~~java
+// 1、转换成AnnotationAttributes（LinkedHashMap），模糊掉注解类型（常用）
+AnnotationAttributes attributes = AnnotationConfigUtils.attributesFor(importingClassMetadata, annType);
+
+// 2、拿到指定类型注解的元数据信息（也较为常用）
+AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(name, true))
+
+// 3、直接使用MetaData
+MultiValueMap<String, Object> attributes = metadata.getAllAnnotationAttributes(EnableConfigurationProperties.class.getName(), false);
+
+~~~
+
+
+
+## 使用示例
+
+~~~java
+// 准备一个Class类 作为Demo演示
+@Repository("repositoryName")
+@Service("serviceName")
+@EnableAsync
+class MetaDemo extends HashMap<String, String> implements Serializable {
+    private static class InnerClass {
+    }
+
+    @Autowired
+    private String getName() {
+        return "demo";
+    }
+}
+
+
+public static void main(String[] args) {
+    StandardAnnotationMetadata metadata = new StandardAnnotationMetadata(MetaDemo.class, true);
+
+    // 演示ClassMetadata的效果
+    System.out.println("==============ClassMetadata==============");
+    ClassMetadata classMetadata = metadata;
+    System.out.println(classMetadata.getClassName()); //com.fsx.maintest.MetaDemo
+    System.out.println(classMetadata.getEnclosingClassName()); //null  如果自己是内部类此处就有值了
+    System.out.println(StringUtils.arrayToCommaDelimitedString(classMetadata.getMemberClassNames())); //com.fsx.maintest.MetaDemo$InnerClass 若木有内部类返回空数组[]
+    System.out.println(StringUtils.arrayToCommaDelimitedString(classMetadata.getInterfaceNames())); // java.io.Serializable
+    System.out.println(classMetadata.hasSuperClass()); // true(只有Object这里是false)
+    System.out.println(classMetadata.getSuperClassName()); // java.util.HashMap
+
+    System.out.println(classMetadata.isAnnotation()); // false（是否是注解类型的Class，这里显然是false）
+    System.out.println(classMetadata.isFinal()); // false
+    System.out.println(classMetadata.isIndependent()); // true(top class或者static inner class，就是独立可new的)
+    // 演示AnnotatedTypeMetadata的效果
+    System.out.println("==============AnnotatedTypeMetadata==============");
+    AnnotatedTypeMetadata annotatedTypeMetadata = metadata;
+    System.out.println(annotatedTypeMetadata.isAnnotated(Service.class.getName())); // true（依赖的AnnotatedElementUtils.isAnnotated这个方法）
+    System.out.println(annotatedTypeMetadata.isAnnotated(Component.class.getName())); // true
+
+    System.out.println(annotatedTypeMetadata.getAnnotationAttributes(Service.class.getName())); //{value=serviceName}
+    System.out.println(annotatedTypeMetadata.getAnnotationAttributes(Component.class.getName())); // {value=repositoryName}（@Repository的value值覆盖了@Service的）
+    System.out.println(annotatedTypeMetadata.getAnnotationAttributes(EnableAsync.class.getName())); // {order=2147483647, annotation=interface java.lang.annotation.Annotation, proxyTargetClass=false, mode=PROXY}
+
+    // 看看getAll的区别：value都是数组的形式
+    System.out.println(annotatedTypeMetadata.getAllAnnotationAttributes(Service.class.getName())); // {value=[serviceName]}
+    System.out.println(annotatedTypeMetadata.getAllAnnotationAttributes(Component.class.getName())); // {value=[, ]} --> 两个Component的value值都拿到了，只是都是空串而已
+    System.out.println(annotatedTypeMetadata.getAllAnnotationAttributes(EnableAsync.class.getName())); //{order=[2147483647], annotation=[interface java.lang.annotation.Annotation], proxyTargetClass=[false], mode=[PROXY]}
+
+    // 演示AnnotationMetadata子接口的效果（重要）
+    System.out.println("==============AnnotationMetadata==============");
+    AnnotationMetadata annotationMetadata = metadata;
+    System.out.println(annotationMetadata.getAnnotationTypes()); // [org.springframework.stereotype.Repository, org.springframework.stereotype.Service, org.springframework.scheduling.annotation.EnableAsync]
+    System.out.println(annotationMetadata.getMetaAnnotationTypes(Service.class.getName())); // [org.springframework.stereotype.Component, org.springframework.stereotype.Indexed]
+    System.out.println(annotationMetadata.getMetaAnnotationTypes(Component.class.getName())); // []（meta就是获取注解上面的注解,会排除掉java.lang这些注解们）
+
+    System.out.println(annotationMetadata.hasAnnotation(Service.class.getName())); // true
+    System.out.println(annotationMetadata.hasAnnotation(Component.class.getName())); // false（注意这里返回的是false）
+
+    System.out.println(annotationMetadata.hasMetaAnnotation(Service.class.getName())); // false（注意这一组的结果和上面相反，因为它看的是meta）
+    System.out.println(annotationMetadata.hasMetaAnnotation(Component.class.getName())); // true
+
+    System.out.println(annotationMetadata.hasAnnotatedMethods(Autowired.class.getName())); // true
+    annotationMetadata.getAnnotatedMethods(Autowired.class.getName()).forEach(methodMetadata -> {
+        System.out.println(methodMetadata.getClass()); // class org.springframework.core.type.StandardMethodMetadata
+        System.out.println(methodMetadata.getMethodName()); // getName
+        System.out.println(methodMetadata.getReturnTypeName()); // java.lang.String
+    });
+}
+~~~
+
+像这些元数据，在框架设计时候很多时候我们都希望从`File(Resource)`里得到，而不是从`Class`文件里获取，所以就是`MetadataReader`和`MetadataReaderFactory`。下面我也给出使用案例：
+
+> 因为`MetadataReader`的实现类都是包级别的访问权限，所以它的实例只能来自工厂
+
+```java
+public static void main(String[] args) throws IOException {
+    CachingMetadataReaderFactory readerFactory = new CachingMetadataReaderFactory();
+    // 下面两种初始化方式都可，效果一样
+    //MetadataReader metadataReader = readerFactory.getMetadataReader(MetaDemo.class.getName());
+    MetadataReader metadataReader = readerFactory.getMetadataReader(new ClassPathResource("com/fsx/maintest/MetaDemo.class"));
+
+    ClassMetadata classMetadata = metadataReader.getClassMetadata();
+    AnnotationMetadata annotationMetadata = metadataReader.getAnnotationMetadata();
+    Resource resource = metadataReader.getResource();
+
+    System.out.println(classMetadata); // org.springframework.core.type.classreading.AnnotationMetadataReadingVisitor@79079097
+    System.out.println(annotationMetadata); // org.springframework.core.type.classreading.AnnotationMetadataReadingVisitor@79079097
+    System.out.println(resource); // class path resource [com/fsx/maintest/MetaDemo.class]
+
+}
+
+```
+
+
+
+#### 总结
+
+**元数据**，是框架设计中必须的一个概念，所有的流行框架里都能看到它的影子，包括且不限于`Spring、SpringBoot、SpringCloud、MyBatis、Hibernate`等。它的作用肯定是大大的，它能模糊掉具体的类型，**能让数据输出变得统一**，能解决Java抽象解决不了的问题，比如运用得最广的便是注解，因为它不能继承无法抽象，所以用元数据方式就可以完美行成统一的向上抽取让它变得与类型无关，也就是常说的模糊效果，这便是框架的核心设计思想。
+
+不管是`ClassMetadata`还是`AnnotatedTypeMetadata`都会有基于反射和基于ASM的两种解决方案，他们能使用于不同的场景：
+
+- 标准反射：它依赖于Class，优点是实现简单，缺点是**使用时必须把Class加载进来**。
+- ASM：无需提前加载Class入JVM，所有特别特别适用于形如`Spring`应用扫描的场景（扫描所有资源，但并不是加载所有进JVM/容器~）
 
 
 
