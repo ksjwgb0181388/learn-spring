@@ -1305,25 +1305,44 @@ public static void main(String[] args) throws IOException {
 
 
 
+# 四、BeanFactroy的概述
+
+是SpringBean容器的根接口，**提供获取bean，是否包含bean，是否单例与原型，获取bean类型，bean别名的方法**
+
+
+
+![](C:\Users\Admin\Desktop\learn-spring\图片\2b70dcc195f9fa351ce7969cac54d6b9273.jpg)
+
+
+
+Bean 的定义主要由 **BeanDefinition** 实现，如下图说明了这些类的层次关系：
+
+![](C:\Users\Admin\Desktop\learn-spring\图片\36861d586d41a9669752d696fc2d0cf0eac.jpg)
+
+
+
+Bean 的定义就是完整的描述了在 Spring 的配置文件中你定义的 <bean/> 节点中所有的信息，包括各种子节点。当 Spring 成功解析你定义的一个 <bean/> 节点后，**在 Spring 的内部它就被转化成 BeanDefinition 对象**。以后所有的操作都是对这个对象完成的。
+
+
+
+Bean 的解析过程非常复杂，功能被分的很细，因为这里需要被扩展的地方很多，必须保证有足够的灵活性，以应对可能的变化。Bean 的解析主要就是对 Spring 配置文件的解析。这个解析过程主要通过下图中的类完成：
+
+
+
+![](C:\Users\Admin\Desktop\learn-spring\图片\800bde55da533d7733e83b51d889bd98921.jpg)
 
 
 
 
 
+# 五、AnnotationConfigApplication
 
+## 5.1 主要涉及的接口信息
 
-
-
-
-
-
-
-
-
-
-
-
-
+1. `GenericApplicationContext`——通用应用上下文，内部持有一个`DefaultListableBeanFactory`实例，这个类实现了`BeanDefinitionRegistry`接口，可以在它身上使用任意的bean definition读取器。典型的使用案例是：通过`BeanFactoryRegistry`接口注册bean definitions，然后调用`refresh()`方法来初始化那些带有应用上下文语义（`org.springframework.context.ApplicationContextAware`）的bean，自动探测`org.springframework.beans.factory.config.BeanFactoryPostProcessor`等。关于这两个接口，在介绍bean的生命周期时进行详细讲解。
+2. `BeanDefinitionRegistry`——用于持有像`RootBeanDefinition`和 `ChildBeanDefinition`实例的bean definitions的注册表接口。`DefaultListableBeanFactory`实现了这个接口，因此可以通过相应的方法向`beanFactory`里面注册bean。**`GenericApplicationContext`内置一个`DefaultListableBeanFactory`实例，它对这个接口的实现实际上是通过调用这个实例的相应方法实现的**。
+3. `AbstractApplicationContext`——`ApplicationContext`接口的抽象实现，没有强制规定配置的存储类型，仅仅实现了通用的上下文功能。这个实现用到了模板方法设计模式，需要具体的子类来实现其抽象方法。自动通过`registerBeanPostProcessors()`方法注册`BeanFactoryPostProcessor`, `BeanPostProcessor`和`ApplicationListener`的实例用来探测bean factory里的特殊bean——对比1分析
+4. `AnnotationConfigRegistry`——注解配置注册表。用于注解配置应用上下文的通用接口，拥有一个注册配置类和扫描配置类的方法。
 
 
 
