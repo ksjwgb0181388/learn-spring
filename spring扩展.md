@@ -1350,13 +1350,124 @@ Bean 的解析过程非常复杂，功能被分的很细，因为这里需要被
 
 
 
+# 六、BeanPostProcessor和BeanFactoryPostProcessor
 
 
 
+**BeanPostProcessor**：bean级别的处理，针对某个具体的bean进行处理
+
+需要注意一点，我们定义一个类实现了BeanPostProcessor，默认是会对整个Spring容器中所有的bean进行处理。
+
+这个的处理是发生在Spring容器的实例化和依赖注入之后。
 
 
 
+**BeanFactoryPostProcessor**：BeanFactory级别的处理，是针对整个Bean的工厂进行处理
 
+此接口只提供了一个方法，方法参数为ConfigurableListableBeanFactory
+
+当我们调用BeanFactoryPostProcess方法时，这时候bean还没有实例化，此时bean刚被解析成BeanDefinition对象。
+
+
+
+# 七、BeanFactory和FactroyBean的区别
+
+BeanFactory是接口，提供了IOC容器最基本的形式，给具体的IOC容器的实现提供了规范，
+
+FactoryBean也是接口，为IOC容器中Bean的实现提供了更加灵活的方式。FactoryBean在IOC容器的基础上给Bean的实现加上了一个简单工厂模式和装饰模式。可以在getObject()方法中灵活配置。其实在Spring源码中有很多FactoryBean的实现类.
+
+
+
+区别：BeanFactory是个Factory，也就是IOC容器或对象工厂，FactoryBean是个Bean。
+
+在Spring中，**所有的Bean都是由BeanFactory(也就是IOC容器)来进行管理的**。
+
+但对FactoryBean而言，**这个Bean不是简单的Bean，而是一个能生产或者修饰对象生成的工厂Bean,它的实现与设计模式中的工厂模式和修饰器模式类似** 
+
+
+
+1. FactoryBean
+
+   **一般情况下，Spring通过反射机制利用<bean>的class属性指定实现类实例化Bean，在某些情况下，实例化Bean过程比较复杂，如果按照传统的方式，则需要在<bean>中提供大量的配置信息。配置方式的灵活性是受限的，这时采用编码的方式可能会得到一个简单的方案。Spring为此提供了一个org.springframework.bean.factory.FactoryBean的工厂类接口，用户可以通过实现该接口定制实例化Bean的逻辑。FactoryBean接口对于Spring框架来说占用重要的地位，Spring自身就提供了70多个FactoryBean的实现**。
+
+~~~java
+/**
+ * my factory bean<p>
+ * 代理一个类，拦截该类的所有方法，在方法的调用前后进行日志的输出
+ * @author daniel.zhao
+ *
+ */
+public class MyFactoryBean implements FactoryBean<Object>, InitializingBean, DisposableBean {
+
+    private static final Logger logger = LoggerFactory.getLogger(MyFactoryBean.class);    
+    private String interfaceName;    
+    private Object target;    
+    private Object proxyObj;    
+    @Override
+    public void destroy() throws Exception {
+        logger.debug("destroy......");
+    }
+    @Override
+    public void afterPropertiesSet() throws Exception {
+        proxyObj = Proxy.newProxyInstance(
+                this.getClass().getClassLoader(), 
+                new Class[] { Class.forName(interfaceName) }, 
+                new InvocationHandler() {                    
+            @Override
+            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                logger.debug("invoke method......" + method.getName());
+                logger.debug("invoke method before......" + System.currentTimeMillis());
+                Object result = method.invoke(target, args);
+                logger.debug("invoke method after......" + System.currentTimeMillis());
+                return result;            }            
+        });
+        logger.debug("afterPropertiesSet......");
+    }
+
+    @Override
+    public Object getObject() throws Exception {
+        logger.debug("getObject......");
+        return proxyObj;
+    }
+
+    @Override
+    public Class<?> getObjectType() {
+        return proxyObj == null ? Object.class : proxyObj.getClass();
+    }
+
+    @Override
+    public boolean isSingleton() {
+        return true;
+    }
+
+    public String getInterfaceName() {
+        return interfaceName;
+    }
+
+    public void setInterfaceName(String interfaceName) {
+        this.interfaceName = interfaceName;
+    }
+
+    public Object getTarget() {
+        return target;
+    }
+
+    public void setTarget(Object target) {
+        this.target = target;
+    }
+
+    public Object getProxyObj() {
+        return proxyObj;
+    }
+
+    public void setProxyObj(Object proxyObj) {
+        this.proxyObj = proxyObj;
+    }
+
+}
+~~~
+
+FactoryBean是一个接口，当在IOC容器中的Bean实现了FactoryBean后，通过getBean(String BeanName)获取到的Bean对象并不是FactoryBean的实现类对象，而是这个实现类中的getObject()方法返回的对象。要想获取FactoryBean的实现类，就要getBean(&BeanName)，在BeanName之前加上&。
 
 
 
